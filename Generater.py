@@ -81,49 +81,90 @@ def determine_system_status(temp, co, smoke, arc):
 def generate_organic_packets(load, threat, p_base, step, current_sb_id):
     prev = st.session_state.simulation_state
     
-    # Physics simulation logic
-    target_temp = 24.0 + (load**2 * 0.004)
-    if threat == "fire_overload": target_temp += (p_base * 40)
-    temp = prev['temp'] + (target_temp - prev['temp']) * 0.1 + np.random.normal(0, 0.1)
+    # 1. Arc Logic
+    # Arc flashes are short bursts of energy resulting from insulation failure or loose connections
+    is_arc_active = (threat == "insulation_aging" and random.random() > 0.75) 
+    arc_val = np.random.normal(3.5, 1.0) * p_base if is_arc_active else 0.0
+    # Let's add continuous micro-arcs for severe breakdown
+    if threat == "breakdown" and p_base > 0.5:
+        arc_val = max(arc_val, np.random.normal(1.0, 0.5))
+    arc_val = max(0.0, arc_val)
     
-    arc_val = 3.5 * p_base if (threat == "insulation_aging" and random.random() > 0.3) else 0.0
+    # 2. Temperature Logic (I^2R Heating + Arc Heat)
+    # Target temperature depends on the electrical load (Heating)
+    target_temp = 24.0 + (load**2 * 0.003) 
+    if threat == "fire_overload": target_temp += (p_base * 60) # Massive heat surge
     
-    humi = prev['humi'] + (30.0 * p_base if threat == "condensation" else -0.1) + np.random.normal(0, 0.2)
-    humi = max(0, min(100, humi))
+    # Arc flashes add a sudden surge of heat (localized plasma)
+    target_temp += (arc_val * 15.0)
     
-    vibe = 0.95 + np.random.normal(0, 0.001) + (0.05 * p_base if threat == "breakdown" else 0)
-
-    # Physics logic for CO (4uP-Co)
-    # Normal: 0~5ppm. Abnormal: Over 80 degrees or arc detected -> jumps to 50~200ppm
-    co_target = 2.0 + np.random.normal(0, 1.0) # Base noise
-    if temp > 80.0 or arc_val > 0.0:
-        co_target = random.uniform(50, 200) + (100 * p_base)
-    co = prev['co'] + (co_target - prev['co']) * 0.2 + np.random.normal(0, 0.5)
-    co = max(0.0, co) # Prevent negative values
-
-    # Physics logic for Smoke (4uP-SM)
-    # Normal: 0%. Abnormal: Follows CO increase with a slight delay
-    smoke_target = 0.0
-    if co > 50.0:
-        smoke_target = prev['smoke'] + (10 * p_base) + random.uniform(2, 5)
-    smoke = prev['smoke'] + (smoke_target - prev['smoke']) * 0.1
-    smoke = max(0.0, min(100.0, smoke)) # 0 to 100 range
+    # Apply thermal inertia (System heats up gradually, cools down gradually)
+    inertia_factor = 0.05
+    noise_temp = np.random.normal(0, 0.1)
+    temp = prev['temp'] + (target_temp - prev['temp']) * inertia_factor + noise_temp
+    
+    # 3. Humidity Logic (Relative Humidity is inversely correlated to Temperature)
+    # As temp rises in an enclosed switchboard, RH drops. 
+    # Condensation threat forces external moisture in.
+    base_target_humi = 45.0
+    if threat == "condensation":
+        base_target_humi = 80.0 + (p_base * 20.0) # Up to 100%
+        
+    # Apply inverse relationship to temperature (simple approximation)
+    temp_diff = max(0, temp - 24.0)
+    target_humi = base_target_humi - (temp_diff * 0.8) # Temp up by 10C -> RH down by 8%
+    
+    humi = prev['humi'] + (target_humi - prev['humi']) * 0.1 + np.random.normal(0, 0.5)
+    humi = max(0.0, min(100.0, humi))
+    
+    # 4. Vibration Logic
+    target_vibe = 0.95
+    if threat == "breakdown":
+        target_vibe += (p_base * 0.4) # Loosened mechanical parts rumble
+    vibe = prev['vibe'] + (target_vibe - prev['vibe']) * 0.3 + np.random.normal(0, 0.005)
+    
+    # 5. CO (Carbon Monoxide) Logic - Arrhenius Equation inspired Pyrolysis
+    # Insulation (e.g. PVC) starts out-gassing CO as it approaches 80-100+ degrees C.
+    co_emission_rate = 0.0
+    if temp > 75.0:
+        # Exponential increase in CO emission based on temperature exceeding safe limits
+        co_emission_rate = min(50.0, np.exp(0.12 * (temp - 75.0)) * p_base)
+    # Sudden large arc vaporizes insulation instantly creating CO burst
+    if arc_val > 1.0:
+        co_emission_rate += (arc_val * 20.0)
+        
+    co_decay = prev['co'] * 0.05 # Switchboard ventilation removes CO over time
+    background_co = np.random.normal(2.0, 0.5) # Natural trace CO
+    
+    co = prev['co'] + co_emission_rate - co_decay
+    co = max(background_co, co)
+    
+    # 6. Smoke (4uP-SM) Logic - Time Delayed Integration of severe CO & High Temp
+    # Smoldering creates CO first. Open flame or severe charring later creates visible smoke.
+    smoke_emission_rate = 0.0
+    if co > 100.0 and temp > 85.0:
+        # Smoke only starts building after a critical mass of CO and heat (Fire ignition)
+        smoke_emission_rate = (co - 100.0) * 0.05 # Proportional to severe CO
+        
+    smoke_decay = prev['smoke'] * 0.02 # Smoke lingering (slower decay than CO)
+    smoke = prev['smoke'] + smoke_emission_rate - smoke_decay + np.random.normal(0, 0.1)
+    smoke = max(0.0, min(100.0, smoke))
 
     # Save state
     st.session_state.simulation_state = {
         "temp": temp, "humi": humi, "arc": arc_val, "vibe": vibe, "co": co, "smoke": smoke
     }
 
-    # ISO 8601 UTC timestamp format (e.g. 2025-12-25T00:00:22Z)
+    # ISO 8601 UTC timestamp format
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # Generate isolated JSON packets per sensor, matching requested example
+    # Generate isolated JSON packets per sensor
     packets = [
-        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}001", "type": "temperatur", "value": round(temp, 1), "unit": "C", "ts": ts},
-        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}002", "type": "humidity", "value": round(humi, 1), "unit": "%", "ts": ts},
-        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}003", "type": "arc_detected", "value": round(arc_val, 1), "unit": "-", "ts": ts},
-        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}004", "type": "vibration", "value": round(vibe, 5), "unit": "G", "ts": ts},
-        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}005", "type": "4uP-Co", "value": round(co, 2), "unit": "ppm", "ts": ts},
+        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}001", "type": "temperatur", "value": round(temp, 2), "unit": "C", "ts": ts},
+        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}002", "type": "humidity", "value": round(humi, 2), "unit": "%", "ts": ts},
+        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}003", "type": "arc_detected", "value": round(arc_val, 2), "unit": "-", "ts": ts},
+        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}004", "type": "vibration", "value": round(vibe, 4), "unit": "G", "ts": ts},
+        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}005", "type": "4uP-Co", "value": round(co, 1), "unit": "ppm", "ts": ts},
         {"sb_id": current_sb_id, "device_id": f"{current_sb_id}006", "type": "4uP-SM", "value": round(smoke, 2), "unit": "%", "ts": ts}
     ]
     
