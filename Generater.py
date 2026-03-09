@@ -160,11 +160,11 @@ def generate_organic_packets(load, threat, p_base, step, current_sb_id):
 
     # Generate isolated JSON packets per sensor
     packets = [
-        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}001", "type": "temperatur", "value": round(temp, 2), "unit": "C", "ts": ts},
-        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}002", "type": "humidity", "value": round(humi, 2), "unit": "%", "ts": ts},
-        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}003", "type": "arc_detected", "value": round(arc_val, 2), "unit": "-", "ts": ts},
-        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}004", "type": "vibration", "value": round(vibe, 4), "unit": "G", "ts": ts},
-        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}005", "type": "4uP-Co", "value": round(co, 1), "unit": "ppm", "ts": ts},
+        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}001", "type": "temperatur", "value": round(temp, 1), "unit": "C", "ts": ts},
+        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}002", "type": "humidity", "value": round(humi, 1), "unit": "%", "ts": ts},
+        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}003", "type": "arc_detected", "value": round(arc_val, 1), "unit": "-", "ts": ts},
+        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}004", "type": "vibration", "value": round(vibe, 5), "unit": "G", "ts": ts},
+        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}005", "type": "4uP-Co", "value": round(co, 2), "unit": "ppm", "ts": ts},
         {"sb_id": current_sb_id, "device_id": f"{current_sb_id}006", "type": "4uP-SM", "value": round(smoke, 2), "unit": "%", "ts": ts}
     ]
     
