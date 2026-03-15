@@ -16,7 +16,7 @@ if 'simulation_state' not in st.session_state:
         "temp": 24.0, 
         "humi": 45.0,
         "arc": 0.0,
-        "vibe": 0.95,
+        "vibe": 60.0,  # Normal frequency for Vibration is 60 Hz in Korea
         "co": 2.0,     # Normal state for CO (0-5 ppm)
         "smoke": 0.0   # Normal state for Smoke (0%)
     }
@@ -41,7 +41,7 @@ with st.sidebar:
     st.markdown("---")
     st.header("📡 Communication")
     broker = st.text_input("MQTT Broker", "broker.emqx.io")
-    topic = st.text_input("Publish Topic", "factory/ai/prediction_output")
+    topic = st.text_input("Publish Topic Pattern", "sensors/{device_id}/data")
     hz = st.slider("Publish Frequency (Hz)", 1, 10, 1)
     sb_id = st.text_input("Switchboard ID", "SB-251212140925-P")
 
@@ -82,13 +82,12 @@ def generate_organic_packets(load, threat, p_base, step, current_sb_id):
     prev = st.session_state.simulation_state
     
     # 1. Arc Logic
-    # Arc flashes are short bursts of energy resulting from insulation failure or loose connections
+    # The hardware Arc sensor outputs a binary signal (0.0 or 1.0)
     is_arc_active = (threat == "insulation_aging" and random.random() > 0.75) 
-    arc_val = np.random.normal(3.5, 1.0) * p_base if is_arc_active else 0.0
-    # Let's add continuous micro-arcs for severe breakdown
     if threat == "breakdown" and p_base > 0.5:
-        arc_val = max(arc_val, np.random.normal(1.0, 0.5))
-    arc_val = max(0.0, arc_val)
+        is_arc_active = True
+        
+    arc_val = 1.0 if is_arc_active else 0.0
     
     # 2. Temperature Logic (I^2R Heating + Arc Heat)
     # Target temperature depends on the electrical load (Heating)
@@ -96,7 +95,7 @@ def generate_organic_packets(load, threat, p_base, step, current_sb_id):
     if threat == "fire_overload": target_temp += (p_base * 60) # Massive heat surge
     
     # Arc flashes add a sudden surge of heat (localized plasma)
-    target_temp += (arc_val * 15.0)
+    target_temp += (arc_val * 45.0) # Compensated multiplier for binary range
     
     # Apply thermal inertia (System heats up gradually, cools down gradually)
     inertia_factor = 0.05
@@ -117,11 +116,15 @@ def generate_organic_packets(load, threat, p_base, step, current_sb_id):
     humi = prev['humi'] + (target_humi - prev['humi']) * 0.1 + np.random.normal(0, 0.5)
     humi = max(0.0, min(100.0, humi))
     
-    # 4. Vibration Logic
-    target_vibe = 0.95
+    # 4. Vibration (Hz) Logic
+    # Normal electrical humming sits tightly around 60Hz.
+    target_vibe = 60.0
+    vibe_noise = 0.05
     if threat == "breakdown":
-        target_vibe += (p_base * 0.4) # Loosened mechanical parts rumble
-    vibe = prev['vibe'] + (target_vibe - prev['vibe']) * 0.3 + np.random.normal(0, 0.005)
+        # Mechanical looseness causes frequency to shift and scatter
+        target_vibe += (p_base * 25.0) 
+        vibe_noise = p_base * 5.0
+    vibe = prev['vibe'] + (target_vibe - prev['vibe']) * 0.3 + np.random.normal(0, vibe_noise)
     
     # 5. CO (Carbon Monoxide) Logic - Arrhenius Equation inspired Pyrolysis
     # Insulation (e.g. PVC) starts out-gassing CO as it approaches 80-100+ degrees C.
@@ -130,8 +133,8 @@ def generate_organic_packets(load, threat, p_base, step, current_sb_id):
         # Exponential increase in CO emission based on temperature exceeding safe limits
         co_emission_rate = min(50.0, np.exp(0.12 * (temp - 75.0)) * p_base)
     # Sudden large arc vaporizes insulation instantly creating CO burst
-    if arc_val > 1.0:
-        co_emission_rate += (arc_val * 20.0)
+    if arc_val >= 1.0:
+        co_emission_rate += (arc_val * 50.0)
         
     co_decay = prev['co'] * 0.05 # Switchboard ventilation removes CO over time
     background_co = np.random.normal(2.0, 0.5) # Natural trace CO
@@ -160,12 +163,12 @@ def generate_organic_packets(load, threat, p_base, step, current_sb_id):
 
     # Generate isolated JSON packets per sensor
     packets = [
-        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}001", "type": "temperatur", "value": round(temp, 1), "unit": "C", "ts": ts},
+        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}001", "type": "temperature", "value": round(temp, 1), "unit": "C", "ts": ts},
         {"sb_id": current_sb_id, "device_id": f"{current_sb_id}002", "type": "humidity", "value": round(humi, 1), "unit": "%", "ts": ts},
-        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}003", "type": "arc_detected", "value": round(arc_val, 1), "unit": "-", "ts": ts},
-        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}004", "type": "vibration", "value": round(vibe, 5), "unit": "G", "ts": ts},
-        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}005", "type": "4uP-Co", "value": round(co, 2), "unit": "ppm", "ts": ts},
-        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}006", "type": "4uP-SM", "value": round(smoke, 2), "unit": "%", "ts": ts}
+        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}003", "type": "arc", "value": round(arc_val, 1), "unit": "-", "ts": ts},
+        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}004", "type": "vibration", "value": round(vibe, 2), "unit": "Hz", "ts": ts},
+        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}005", "type": "co", "value": round(co / 10000.0, 4), "unit": "%", "ts": ts},
+        {"sb_id": current_sb_id, "device_id": f"{current_sb_id}006", "type": "tobacco", "value": round(smoke, 2), "unit": "-", "ts": ts}
     ]
     
     status_info = determine_system_status(temp, co, smoke, arc_val)
@@ -201,7 +204,8 @@ if st.session_state.running:
                     f.write(json.dumps(packet) + "\n")
                     
         for packet in packets:
-            client.publish(topic, json.dumps(packet))
+            dynamic_topic = topic.replace("{device_id}", packet["device_id"]) if "{device_id}" in topic else topic
+            client.publish(dynamic_topic, json.dumps(packet))
             
         with display_area.container():
             st.success(f"📡 Connected to {broker} - Publishing at {hz} Hz")
@@ -217,9 +221,9 @@ if st.session_state.running:
             m_col3.metric("Arc Signal", f"{packets[2]['value']}")
             
             m_col4, m_col5, m_col6 = st.columns(3)
-            m_col4.metric("Vibration", f"{packets[3]['value']} G")
-            m_col5.metric("CO Level (4uP-Co)", f"{packets[4]['value']} ppm")
-            m_col6.metric("Smoke (4uP-SM)", f"{packets[5]['value']} %")
+            m_col4.metric("Vibration", f"{packets[3]['value']} Hz")
+            m_col5.metric("CO Level (co)", f"{packets[4]['value']} %")
+            m_col6.metric("Smoke (tobacco)", f"{packets[5]['value']} -")
             
             st.write("#### Outbound JSON Payloads")
             for p in packets:
