@@ -19,12 +19,12 @@ This project generates realistic, organically linked sensor data (Temperature, H
 - **Local Storage**: Automatically append and save generated payloads as a `.jsonl` file in a specified local directory alongside MQTT publishing.
 
 ### Simulated Sensors
-- **Temperature (`temperatur`)**: Baseline 24°C, rises with load current or overload scenarios.
+- **Temperature (`temperature`)**: Baseline 24°C, rises with load current or overload scenarios.
 - **Humidity (`humidity`)**: Baseline 45%, fluctuates and rises sharply during condensation scenarios. 
-- **Arc (`arc_detected`)**: Electrical arcing intensity, triggers frequently under insulation aging scenarios.
-- **Vibration (`vibration`)**: Baseline 0.95G, increases during mechanical breakdown scenarios.
-- **Carbon Monoxide / CO (`4uP-Co`)**: Baseline 0~5 ppm, sharply increases to 50~200 ppm if temperature heavily rises or arcs occur (Charring simulation). 
-- **Smoke (`4uP-SM`)**: Baseline 0%, increases based on CO accumulation with a slight time delay.
+- **Arc (`arc`)**: **Binary indication (0.0 or 1.0)**. Triggers frequently under insulation aging/breakdown scenarios.
+- **Vibration (`vibration`)**: Baseline 60.0 Hz, fluctuates and scatters during mechanical breakdown scenarios.
+- **Carbon Monoxide / CO (`co`)**: Baseline 0~5 ppm (sent as %), sharply increases based on Arrhenius equation if temperature rises or arcs occur.
+- **Smoke (`tobacco`)**: Baseline 0~100 intensity, increases based on CO accumulation with a slight time delay.
 
 ### Usage
 ```bash
@@ -46,12 +46,12 @@ streamlit run Generater.py
 - **로컬 파일 저장 지원**: 사이드바 옵션을 통해, 생성되는 모든 MQTT 패킷 데이터를 지정한 로컬 디렉토리에 `.jsonl` 파일 형태로 실시간 누적 기록(Append)할 수 있습니다.
 
 ### 모사되는 센서 목록
-- **온도 (`temperatur`)**: 기본 24℃. 부하 전류가 높거나 과부하 시나리오 시 상승.
+- **온도 (`temperature`)**: 기본 24℃. 부하 전류가 높거나 과부하 시나리오 시 상승.
 - **습도 (`humidity`)**: 기본 45%. 결로(Condensation) 시나리오 적용 시 급상승.
-- **아크 (`arc_detected`)**: 전기적 아크 발생률. 절연 노후화(Insulation aging) 시나리오 시 자주 발생.
-- **진동 (`vibration`)**: 기본 0.95G. 기계적 결함(Breakdown) 시나리오 시 진폭 증가.
-- **일산화탄소 / CO (`4uP-Co`)**: 기본 0~5 ppm. 온도가 크게 오르거나 아크가 발생하면 50~200 ppm 수준으로 급격히 튀어 오름 (전선 피복 탄화 현상 모사).
-- **연기 (`4uP-SM`)**: 기본 0%. CO 수치가 특정 임계점을 넘어가면 시차를 두고 누적 상승함.
+- **아크 (`arc`)**: **바이너리 지표 (0.0 또는 1.0)**. 절연 노후화(Insulation aging) 시나리오 시 발생.
+- **진동 (`vibration`)**: 기본 60.0 Hz. 기계적 결함(Breakdown) 시나리오 시 주파수 변이 발생.
+- **일산화탄소 / CO (`co`)**: 기본 무해 농도. 온도가 크게 오르거나 아크가 발생하면 지수 함수적으로 급격히 상승(전송 단위 %).
+- **연기 (`tobacco`)**: 기본 0~100 수치. CO 수치가 특정 임계점을 넘어가면 시차를 두고 누적 상승함.
 
 ### 실행 방법
 ```bash
